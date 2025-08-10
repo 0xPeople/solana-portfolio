@@ -12,6 +12,12 @@ import {
   sortPortfolioElement,
 } from '@sonarwatch/portfolio-core';
 import { Cache } from './Cache';
+import { FETCHERS_CONCURRENCY, FETCHER_RESULT_TTL_SEC } from './utils/config';
+import runInParallel from './utils/misc/runInParallel';
+import { getActivitySolanaClient } from './utils/clients/getClientSolana';
+import { setUserRequestActivity } from './utils/solana/requestContext';
+import { updateUserActivityAndGetTouchedPrograms } from './utils/solana/userActivity';
+import { setUserLastComputed } from './utils/solana/userActivity';
 import promiseTimeout from './utils/misc/promiseTimeout';
 
 const runFetcherTimeout = 60000;
@@ -43,8 +49,30 @@ export async function runFetchers(
     );
 
   const startDate = Date.now();
-  const promises = fetchers.map((f) => runFetcher(fOwner, f, cache));
-  const result = await Promise.allSettled(promises);
+  // Global per-request user activity: prefetch user signatures once and warm cache
+  try {
+    if (addressSystem === 'solana') {
+      const c = getActivitySolanaClient();
+      const { PublicKey } = await import('@solana/web3.js');
+      const ownerPk = new PublicKey(fOwner);
+      // One-shot: compute touched programs since last cursor; update cursor in Redis
+      const { touchedPrograms, newCursor } = await updateUserActivityAndGetTouchedPrograms(c, cache, ownerPk);
+      setUserRequestActivity({
+        owner: ownerPk,
+        touchedPrograms,
+        lastSeenSignature: newCursor.lastSeenSignature,
+        lastSeenSlot: newCursor.lastSeenSlot,
+        createdAt: Date.now(),
+      });
+    }
+  } catch (_e) {
+    // ignore prefetch failures
+  }
+  // Execute fetchers with a global concurrency cap
+  const result = await runInParallel(
+    fetchers.map((f) => () => runFetcher(fOwner, f, cache)),
+    FETCHERS_CONCURRENCY
+  );
 
   const fReports: FetcherReport[] = [];
   const elements = result.flatMap((r, index) => {
@@ -101,15 +129,38 @@ export async function runFetcher(
 ): Promise<FetcherResult> {
   const startDate = Date.now();
   const fOwner = formatAddressByNetworkId(owner, fetcher.networkId);
-  const fetcherPromise = fetcher.executor(fOwner, cache).then(
-    (elements): FetcherResult => ({
+  // Persist per-user last computed timestamp
+  // eslint-disable-next-line @typescript-eslint/no-floating-promises
+  setUserLastComputed(cache, fOwner, Date.now());
+  const cacheKey = `${fetcher.id}:${fOwner}`;
+  const cachedElements = await cache.getItem<PortfolioElement[]>(cacheKey, {
+    prefix: 'fetcher-result',
+  });
+
+  const fetcherPromise = (async () => {
+    if (cachedElements && cachedElements.length > 0) {
+      return {
+        owner: fOwner,
+        fetcherId: fetcher.id,
+        networdkId: fetcher.networkId,
+        duration: 0,
+        elements: cachedElements.map((e) => sortPortfolioElement(e)),
+      } as FetcherResult;
+    }
+    const elements = await fetcher.executor(fOwner, cache);
+    const sorted = elements.map((e) => sortPortfolioElement(e));
+    await cache.setItem(cacheKey, sorted, {
+      prefix: 'fetcher-result',
+      ttl: FETCHER_RESULT_TTL_SEC * 1000,
+    });
+    return {
       owner: fOwner,
       fetcherId: fetcher.id,
       networdkId: fetcher.networkId,
       duration: Date.now() - startDate,
-      elements: elements.map((e) => sortPortfolioElement(e)),
-    })
-  );
+      elements: sorted,
+    } as FetcherResult;
+  })();
   return promiseTimeout(
     fetcherPromise,
     runFetcherTimeout,

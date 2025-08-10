@@ -1,6 +1,6 @@
 {
-  "name": "portfolio",
-  "version": "0.0.0",
+  "name": "0xppl-solana-portfolio",
+  "version": "1.0.0",
   "license": "MIT",
   "scripts": {
     "build": "nx build",
@@ -12,7 +12,6 @@
   "engines": {
     "node": ">18"
   },
-  "private": true,
   "devDependencies": {
     "@jscutlery/semver": "3.4.1",
     "@nx/devkit": "16.8.1",
@@ -96,5 +95,16 @@
   "nx": {
     "includedScripts": []
   },
-  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e",
+  "description": "[![Core NPM Version](https://img.shields.io/npm/v/@sonarwatch/portfolio-core?color=33cd56&label=npm%20core)](https://www.npmjs.com/package/@sonarwatch/portfolio-core) [![Plugins NPM Version](https://img.shields.io/npm/v/@sonarwatch/portfolio-plugins?color=33cd56&label=npm%20plugins)](https://www.npmjs.com/package/@sonarwatch/portfolio-plugins)",
+  "main": "jest.preset.js",
+  "author": "0xPPL",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xPeople/solana-portfolio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/0xPeople/solana-portfolio/issues"
+  },
+  "homepage": "https://github.com/0xPeople/solana-portfolio#readme"
 }

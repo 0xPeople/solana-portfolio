@@ -53,12 +53,15 @@ const executor: JobExecutor = async (cache: Cache) => {
     let accountsRes;
     const step = 100;
     for (let offset = 0; offset < allPoolsPubkeys.length; offset += step) {
-      poolsBuffers = await client.getMultipleAccountsInfo(
-        allPoolsPubkeys.slice(offset, offset + step).map((res) => res.pubkey)
-      );
+      poolsBuffers = (await getMultipleAccountsInfoSafe(
+        client,
+        allPoolsPubkeys
+          .slice(offset, offset + step)
+          .map((res: { pubkey: PublicKey }) => res.pubkey)
+      )) as any[];
 
-      cAmms = poolsBuffers
-        .map((poolBuffer) => {
+      cAmms = (poolsBuffers as any[])
+        .map((poolBuffer: any) => {
           if (poolBuffer)
             return {
               ...struct.deserialize(poolBuffer.data)[0],
@@ -69,7 +72,7 @@ const executor: JobExecutor = async (cache: Cache) => {
         })
         .flat();
 
-      ammsAccounts = cAmms.filter((a) => {
+      ammsAccounts = cAmms.filter((a: any) => {
         if (a.status.toNumber() === LiquidityPoolStatus.Disabled) return false;
         if (a.status.toNumber() === LiquidityPoolStatus.Uninitialized)
           return false;
@@ -82,7 +85,7 @@ const executor: JobExecutor = async (cache: Cache) => {
 
       const mints: Set<string> = new Set();
       const addresses: PublicKey[] = [];
-      ammsAccounts.forEach((amm) => {
+      ammsAccounts.forEach((amm: any) => {
         addresses.push(
           amm.poolCoinTokenAccount,
           amm.poolPcTokenAccount,
@@ -95,12 +98,15 @@ const executor: JobExecutor = async (cache: Cache) => {
       const tokenAccountsMap: Map<string, TokenAccount> = new Map();
       const ammsOpenOrdersMap: Map<string, CLOBOrderStruct> = new Map();
       const mintAccountsMap: Map<string, MintAccount> = new Map();
-      accountsRes = await getMultipleAccountsInfoSafe(client, addresses);
+      accountsRes = (await getMultipleAccountsInfoSafe(
+        client,
+        addresses
+      )) as any[];
       for (let i = 0; i < accountsRes.length; i += 4) {
-        const poolCoinTokenAccountInfo = accountsRes[i];
-        const poolPcTokenAccountInfo = accountsRes[i + 1];
-        const ammOpenOrdersInfo = accountsRes[i + 2];
-        const lpMintAddressInfo = accountsRes[i + 3];
+        const poolCoinTokenAccountInfo = accountsRes[i] as any;
+        const poolPcTokenAccountInfo = accountsRes[i + 1] as any;
+        const ammOpenOrdersInfo = accountsRes[i + 2] as any;
+        const lpMintAddressInfo = accountsRes[i + 3] as any;
         if (
           !poolCoinTokenAccountInfo ||
           !poolPcTokenAccountInfo ||

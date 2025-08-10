@@ -10,21 +10,57 @@ import { Cache } from '../../Cache';
 import { Fetcher, FetcherExecutor } from '../../Fetcher';
 import { farmProgramId, farmsKey, platformId } from './constants';
 import { getClientSolana } from '../../utils/clients';
-import { getParsedProgramAccounts } from '../../utils/solana';
+import {
+  getParsedMultipleAccountsInfo,
+  getProgramAccounts,
+} from '../../utils/solana';
 import { userStateStruct } from './structs/vaults';
 import { userStateFilter } from './filters';
 import { FarmInfo } from './types';
 import tokenPriceToAssetTokens from '../../utils/misc/tokenPriceToAssetTokens';
+import { PublicKey } from '@solana/web3.js';
+import {
+  shouldRebuildAccounts,
+  getProgramUserCacheFromStore,
+  setProgramUserCacheToStore,
+} from '../../utils/solana/userActivity';
 
 const executor: FetcherExecutor = async (owner: string, cache: Cache) => {
   const client = getClientSolana();
 
-  const userStates = await getParsedProgramAccounts(
+  // Activity-gated discovery: store/reuse PDAs in Redis
+  const ownerPk = new PublicKey(owner);
+  const programKey = farmProgramId.toBase58();
+  const prev = await getProgramUserCacheFromStore(cache, programKey, owner);
+  const activity = await shouldRebuildAccounts(
+    client,
+    ownerPk,
+    farmProgramId,
+    prev
+  );
+
+  let userStatePubkeys: PublicKey[] = [];
+  if (!prev || activity.needRebuild) {
+    const gpa = await getProgramAccounts(
+      client,
+      farmProgramId,
+      userStateFilter(owner),
+      -1
+    );
+    userStatePubkeys = gpa.map((a) => a.pubkey);
+    await setProgramUserCacheToStore(cache, programKey, owner, {
+      accountPubkeys: userStatePubkeys.map((k) => k.toBase58()),
+      activity: activity.activity,
+    });
+  } else {
+    userStatePubkeys = (prev.accountPubkeys || []).map((k) => new PublicKey(k));
+  }
+
+  const userStates = (await getParsedMultipleAccountsInfo(
     client,
     userStateStruct,
-    farmProgramId,
-    userStateFilter(owner)
-  );
+    userStatePubkeys
+  )).filter((u): u is ReturnType<typeof userStateStruct.deserialize>[0] & { pubkey: PublicKey } => !!u);
   if (!userStates) return [];
 
   const farmsInfo = await cache.getItem<FarmInfo[]>(farmsKey, {

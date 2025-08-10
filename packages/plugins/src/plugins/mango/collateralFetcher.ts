@@ -20,19 +20,58 @@ import {
 import { getClientSolana } from '../../utils/clients';
 import { mangoAccountStruct } from './struct';
 import { accountsFilter } from './filters';
-import { getParsedProgramAccounts, u8ArrayToString } from '../../utils/solana';
+import {
+  getParsedMultipleAccountsInfo,
+  u8ArrayToString,
+  ParsedAccount,
+} from '../../utils/solana';
+import { PublicKey } from '@solana/web3.js';
+import {
+  getProgramUserCache,
+  setProgramUserCache,
+  shouldRebuildAccounts,
+  getProgramUserCacheFromStore,
+  setProgramUserCacheToStore,
+} from '../../utils/solana/userActivity';
 import tokenPriceToAssetToken from '../../utils/misc/tokenPriceToAssetToken';
 import runInBatch from '../../utils/misc/runInBatch';
 import { BankEnhanced } from './types';
 
 const executor: FetcherExecutor = async (owner: string, cache: Cache) => {
   const client = getClientSolana();
-  const userAccounts = await getParsedProgramAccounts(
+
+  // Activity-gated Mango account discovery: GPA only when needed
+  const ownerPk = new PublicKey(owner);
+  const programKey = mangoV4Pid.toBase58();
+  const prev = await getProgramUserCache(programKey, owner);
+  const activityCheck = await shouldRebuildAccounts(
+    client,
+    ownerPk,
+    mangoV4Pid,
+    prev
+  );
+
+  let mangoAccountPubkeys: PublicKey[] = [];
+  if (!prev || activityCheck.needRebuild) {
+    const gpa = await client.getProgramAccounts(mangoV4Pid, {
+      filters: accountsFilter(owner),
+      dataSlice: { offset: 0, length: 0 },
+    });
+    mangoAccountPubkeys = gpa.map((a) => a.pubkey);
+    const storeVal = {
+      accountPubkeys: mangoAccountPubkeys.map((k) => k.toBase58()),
+      activity: activityCheck.activity,
+    };
+    await setProgramUserCache(programKey, owner, storeVal);
+  } else {
+    mangoAccountPubkeys = (prev.accountPubkeys || []).map((k) => new PublicKey(k));
+  }
+
+  const userAccounts = (await getParsedMultipleAccountsInfo(
     client,
     mangoAccountStruct,
-    mangoV4Pid,
-    accountsFilter(owner)
-  );
+    mangoAccountPubkeys
+  )).filter((x): x is ParsedAccount<any> => !!x);
   if (userAccounts.length === 0) return [];
 
   const banks = await cache.getItem<BankEnhanced[]>(banksKey, {
